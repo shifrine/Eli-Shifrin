@@ -1,0 +1,255 @@
+/*
+ This code is written with the thanks the examples provided online: 
+-Random Nerd Tutorials. (n.d.). LilyGO T-Call SIM7000G ESP32 with GPS Tracker [Blog post]. Retrieved from https://randomnerdtutorials.com/lilygo-t-sim7000g-esp32-lte-gprs-gps/
+-Xinyuan-LilyGO. (n.d.). Arduino_GPSTest.ino [Code]. Retrieved from https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G/blob/master/examples/Arduino_GPSTest/Arduino_GPSTest.ino
+-Xinyuan-LilyGO. (n.d.). Arduino_Cayenne [Code]. Retrieved from https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G/tree/master/examples/Arduino_Cayenne
+*/
+
+//starts gsm library defines.
+#define TINY_GSM_DEBUG Serial
+#define CAYENNE_PRINT Serial
+#define TINY_GSM_MODEM_SIM7000
+
+#define USE_GSM
+
+#define TINY_GSM_TEST_GPRS true
+
+
+//Determines the above if to include the rest.
+#ifdef USE_GSM
+#include <CayenneMQTTGSM.h>
+#else
+#include <CayenneMQTTESP32.h>
+#endif
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <TinyGsmClient.h>
+
+#include <OneWire.h>            //onewire library
+#include <DallasTemperature.h>  //library for temp sensor
+
+//defines
+#define ONE_WIRE_BUS 22  //What pin sensor is connected to
+
+//Channels being used.
+#define BATTERY_VIRTUAL_CHANNEL 1
+#define SOLAR_VIRTUAL_CHANNEL 2
+#define STAGE_VIRTUAL_CHANNEL 3
+#define WATER_TEMP_VIRTUAL_CHANNEL 4
+#define LONGITUDE_VIRTUAL_CHANNEL 5
+#define LATITUDE_VIRTUAL_CHANNEL 6
+#define YEARZ_VIRTUAL_CHANNEL 7
+#define MONTHZ_VIRTUAL_CHANNEL 8
+#define DAYZ_VIRTUAL_CHANNEL 9
+#define HOURZ_VIRTUAL_CHANNEL 10
+#define MINZ_VIRTUAL_CHANNEL 11
+#define SECZ_VIRTUAL_CHANNEL 12
+
+
+#define PIN_TX 27
+#define PIN_RX 26
+
+#define UART_BAUD 115200  //different baud
+#define PWR_PIN 4
+#define BAT_ADC 35
+#define SOLAR_ADC 36
+#define LED_PIN 12
+
+#define STAGE_PIN   0
+
+//Deep sleep start and period.
+#define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP 900            // Time ESP32 will go to sleep (in seconds) */
+
+// Constructors
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature dallasOnewire(&oneWire);
+HardwareSerial gsmSerial(1);
+TinyGsm modem(gsmSerial);
+DeviceAddress sensorWater = { 0x28, 0x3C, 0x7C, 0x49, 0xF6, 0xAC, 0x3C, 0x53 };  //Not needed, can return to auto configuration
+
+//Global Varibles
+int bootCount = 0;
+bool send = false;
+
+float latz = 0;
+float lonz = 0;
+float speedz = 0;
+float altz = 0;
+int vsatz = 0;
+int usatz = 0;
+float accuracyz = 0;
+int yearz = 0;
+int monthz = 0;
+int dayz = 0;
+int hourz = 0;
+int minz = 0;
+int secz = 0;
+
+//Creates and stores and number with either decimals or integeres.
+float temperature;
+long stage, cm;        //units for stage
+
+#ifdef USE_GSM
+// GSM connection info.
+char apn[] = "";   // Access point name. Leave empty if it is not needed.
+char gprsLogin[] = "";     // GPRS username. Leave empty if it is not needed.
+char gprsPassword[] = "";  // GPRS password. Leave empty if it is not needed.
+char pin[] = "";           // SIM pin number. Leave empty if it is not needed.
+#else
+// WiFi network info.
+char ssid[] = "GA Guest";
+char wifiPassword[] = "";
+#endif
+
+// Cayenne authentication info. This should be obtained from the Cayenne Dashboard.
+char username[] = "";
+char password[] = "";
+char clientID[] = "";
+
+void print_wakeup_reason() {
+  esp_sleep_wakeup_cause_t wakeup_reason;
+
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  switch (wakeup_reason) {
+    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup caused by ULP program"); break;
+    default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
+  }
+}
+
+
+void setup() {
+  //create serials and UART Monitor/port.
+  Serial.begin(115200);                                    //Serial Monitor baud rate
+  gsmSerial.begin(UART_BAUD, SERIAL_8N1, PIN_RX, PIN_TX);  //Serialport for GSM
+
+  // NEED FOR GSM TO POWER ON
+  pinMode(PWR_PIN, OUTPUT);
+
+  //Launch SIM7000
+  digitalWrite(PWR_PIN, HIGH);
+  delay(300);
+  digitalWrite(PWR_PIN, LOW);
+
+  //Stage
+  pinMode(STAGE_PIN, INPUT);
+
+  //Wait for the SIM7000 communication to be normal, and will quit when receiving any byte
+  int i = 6;  //How many times send AT runs
+  delay(200);
+  while (i) {
+    Serial.println("Send AT");
+    gsmSerial.println("AT");
+    if (gsmSerial.available()) {
+      String r = gsmSerial.readString();
+      Serial.println(r);
+      break;
+    }
+    delay(1000);
+    i--;
+  }
+
+
+#ifdef USE_GSM
+  Serial.print("GSM connect");
+  Cayenne.begin(username, password, clientID, gsmSerial, apn, gprsLogin, gprsPassword, pin);
+#else
+  Serial.print("Wifi connect");
+  Cayenne.begin(username, password, clientID, ssid, wifiPassword);
+#endif
+
+  dallasOnewire.begin();
+
+  //Boot and print in serial.
+  ++bootCount;  //Increment boot number and print it every reboot
+  Serial.println("Boot number: " + String(bootCount));
+
+  print_wakeup_reason();
+}
+
+void loop() {
+  readTemp();
+  read_stage();
+  gps();
+  print_All();
+  Cayenne.loop();
+  sendData();
+  print_All();
+  delay(1000);
+  if (send) {
+    start_Deepsleep();
+  }
+}
+
+
+void readTemp() {
+  dallasOnewire.requestTemperatures();               //going out over onewire to send data over bus 32
+  temperature = dallasOnewire.getTempCByIndex(0);  //taking data and putting in Temp C
+  if (temperature != DEVICE_DISCONNECTED_C)           // Check if reading was successful
+  {
+  } else {
+    temperature = 999;
+  }
+}
+
+
+void read_stage()
+{
+  stage = pulseIn(STAGE_PIN, HIGH);
+  cm = stage / 10;// converts the range to cm
+}
+
+
+void sendData()
+
+{
+  Cayenne.virtualWrite(WATER_TEMP_VIRTUAL_CHANNEL, temperature, "temp", "c");
+  Cayenne.virtualWrite(STAGE_VIRTUAL_CHANNEL, cm, "stage", "cm"); //
+  float batmv = readBattery(BAT_ADC);
+  Cayenne.virtualWrite(BATTERY_VIRTUAL_CHANNEL, batmv, TYPE_VOLTAGE, UNIT_MILLIVOLTS);
+  float solmv = readBattery(SOLAR_ADC);
+  Cayenne.virtualWrite(SOLAR_VIRTUAL_CHANNEL, solmv, TYPE_VOLTAGE, UNIT_MILLIVOLTS);
+  Cayenne.virtualWrite(LONGITUDE_VIRTUAL_CHANNEL, lonz, "longitude");
+  Cayenne.virtualWrite(LATITUDE_VIRTUAL_CHANNEL, latz, "latitude");
+  Cayenne.virtualWrite(YEARZ_VIRTUAL_CHANNEL, yearz, "year");
+  Cayenne.virtualWrite(MONTHZ_VIRTUAL_CHANNEL, monthz, "month");
+  Cayenne.virtualWrite(DAYZ_VIRTUAL_CHANNEL, dayz, "day");
+  Cayenne.virtualWrite(HOURZ_VIRTUAL_CHANNEL, hourz, "hour");
+  Cayenne.virtualWrite(MINZ_VIRTUAL_CHANNEL, minz, "minute");
+  Cayenne.virtualWrite(SECZ_VIRTUAL_CHANNEL, secz, "second");
+
+  send = true;
+  delay(3000); //Experiment without delay
+}
+
+float readBattery(uint8_t pin) {
+  int vref = 1100;
+  uint16_t volt = analogRead(pin);
+  float battery_voltage = ((float)volt / 4095.0) * 2.0 * 3.3 * (vref);
+  return battery_voltage;
+}
+
+void print_All() {
+  Serial.println("Water Temp C: " + String(temperature));
+  Serial.println("stage m: " + String(cm));
+}
+
+//deep_sleep starts
+void start_Deepsleep() {
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
+  Serial.println("Going to sleep now");
+  Serial.flush();
+  esp_deep_sleep_start();
+  Serial.println("This will never be printed");
+}
+
+CAYENNE_DISCONNECTED() {
+  start_Deepsleep();
+}
