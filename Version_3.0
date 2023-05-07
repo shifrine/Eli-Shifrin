@@ -1,8 +1,10 @@
 /*
- This code is written with the thanks the examples provided online: 
+ This code is for a remote water quality monitoring station. It records GPS, battery level, solar charge, water temperature and stage, then sends it to Cayenne
+ written with the thanks the examples provided online: 
 -Random Nerd Tutorials. (n.d.). LilyGO T-Call SIM7000G ESP32 with GPS Tracker [Blog post]. Retrieved from https://randomnerdtutorials.com/lilygo-t-sim7000g-esp32-lte-gprs-gps/
 -Xinyuan-LilyGO. (n.d.). Arduino_GPSTest.ino [Code]. Retrieved from https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G/blob/master/examples/Arduino_GPSTest/Arduino_GPSTest.ino
 -Xinyuan-LilyGO. (n.d.). Arduino_Cayenne [Code]. Retrieved from https://github.com/Xinyuan-LilyGO/LilyGO-T-SIM7000G/tree/master/examples/Arduino_Cayenne
+Full research and parts avalible: https://sites.google.com/gouldacademy.org/rqms-elishifrin/home
 */
 
 //starts gsm library defines.
@@ -252,4 +254,91 @@ void start_Deepsleep() {
 
 CAYENNE_DISCONNECTED() {
   start_Deepsleep();
+}
+
+//Here starts GPS power on, off enable and disable.
+
+void enableGPS(void) {
+  //Set SIM7000G GPIO4 LOW ,turn on GPS power
+  // CMD:AT+SGPIO=0,4,1,1
+  // Only in version 20200415 is there a function to control GPS power
+  modem.sendAT("+SGPIO=0,4,1,1");
+
+  Serial.println("modem.sendAT");
+
+  if (modem.waitResponse(10000L) != 1)
+
+  {
+    Serial.println("ifpart");
+
+    DBG(" SGPIO=0,4,1,1 false ");
+  }
+  Serial.println("modem.waitResponse");
+
+  modem.enableGPS();
+
+  Serial.println("modem.enableGPS");
+}
+
+void disableGPS(void) {
+  modem.sendAT("+SGPIO=0,4,1,0");
+  if (modem.waitResponse(10000L) != 1) {
+    DBG(" SGPIO=0,4,1,0 false ");
+  }
+  modem.disableGPS();
+}
+
+void modemPowerOn() {
+  pinMode(PWR_PIN, OUTPUT);
+  digitalWrite(PWR_PIN, HIGH); //When powered HIGH=off
+  delay(1000);  //Datasheet Ton mintues = 1S
+  digitalWrite(PWR_PIN, LOW);
+}
+
+void modemPowerOff() {
+  pinMode(PWR_PIN, OUTPUT);
+  digitalWrite(PWR_PIN, LOW);
+  delay(1500);  //Datasheet Ton mintues = 1.2S
+  digitalWrite(PWR_PIN, HIGH);
+}
+
+void modemRestart() {
+  modemPowerOff();
+  delay(1000);
+  modemPowerOn();
+}
+
+void gps() {
+  if (!modem.testAT()) {
+    Serial.println("Failed to restart modem, attempting to continue without restarting");
+    modemRestart();
+    return;
+  }
+
+  Serial.println("Start positioning . Make sure to locate outdoors.");
+  Serial.println("The blue indicator light flashes to indicate positioning.");
+
+  enableGPS();
+
+  unsigned long previousMillis = 0;
+  const long interval = 60000; //How long in MILLISECONDS it will attempt to connect
+
+  while (1) {
+
+    if (modem.getGPS(&latz, &lonz, &speedz, &altz, &vsatz, &usatz, &accuracyz,
+                     &yearz, &monthz, &dayz, &hourz, &minz, &secz)) {
+      Serial.println("Latitude: " + String(latz, 8) + "\tLongitude: " + String(lonz, 8));
+      Serial.println("Speed: " + String(speedz) + "\tAltitude: " + String(altz));
+      Serial.println("Visible Satellites: " + String(vsatz) + "\tUsed Satellites: " + String(usatz));
+      Serial.println("Accuracy: " + String(accuracyz));
+      Serial.println("Year: " + String(yearz) + "\tMonth: " + String(monthz) + "\tDay: " + String(dayz));
+      Serial.println("Hour: " + String(hourz) + "\tMinute: " + String(minz) + "\tSecond: " + String(secz));
+      break;
+    }
+
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    delay(2000);
+  }
+
+  disableGPS();
 }
