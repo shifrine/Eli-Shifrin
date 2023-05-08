@@ -12,9 +12,9 @@ Full research and parts avalible: https://sites.google.com/gouldacademy.org/rqms
 #define CAYENNE_PRINT Serial
 #define TINY_GSM_MODEM_SIM7000
 
-#define USE_GSM
+#define USE_GSM //comment out to use Wifi. 
 
-#define TINY_GSM_TEST_GPRS true
+#define TINY_GSM_TEST_GPRS true //provides more detail in serial port on LTE connection. 
 
 
 //Determines the above if to include the rest.
@@ -26,15 +26,15 @@ Full research and parts avalible: https://sites.google.com/gouldacademy.org/rqms
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <TinyGsmClient.h>
+#include <TinyGsmClient.h>.    //GPS library
 
 #include <OneWire.h>            //onewire library
 #include <DallasTemperature.h>  //library for temp sensor
 
 //defines
-#define ONE_WIRE_BUS 22  //What pin sensor is connected to
+#define ONE_WIRE_BUS 22  //Defines the pin that the temperature sensor is connected to.
 
-//Channels being used.
+//Channels being used for Cayenne conection.
 #define BATTERY_VIRTUAL_CHANNEL 1
 #define SOLAR_VIRTUAL_CHANNEL 2
 #define STAGE_VIRTUAL_CHANNEL 3
@@ -52,17 +52,17 @@ Full research and parts avalible: https://sites.google.com/gouldacademy.org/rqms
 #define PIN_TX 27
 #define PIN_RX 26
 
-#define UART_BAUD 115200  //different baud
+#define UART_BAUD 115200 
 #define PWR_PIN 4
 #define BAT_ADC 35
 #define SOLAR_ADC 36
 #define LED_PIN 12
 
-#define STAGE_PIN   0
+#define STAGE_PIN   0              //Defines the pin that the ultrasonic sensor is connected to.
 
 //Deep sleep start and period.
-#define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP 900            // Time ESP32 will go to sleep (in seconds) */
+#define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
+#define TIME_TO_SLEEP 900          // Time ESP32 will go to sleep (in seconds)
 
 // Constructors
 OneWire oneWire(ONE_WIRE_BUS);
@@ -91,17 +91,17 @@ int secz = 0;
 
 //Creates and stores and number with either decimals or integeres.
 float temperature;
-long stage, cm;        //units for stage
+long stage, cm;        //Data is taken in as stage, then converted to cm and displayed as sucht
 
 #ifdef USE_GSM
 // GSM connection info.
-char apn[] = "";   // Access point name. Leave empty if it is not needed.
+char apn[] = "";           // Access point name. Leave empty if it is not needed.
 char gprsLogin[] = "";     // GPRS username. Leave empty if it is not needed.
 char gprsPassword[] = "";  // GPRS password. Leave empty if it is not needed.
 char pin[] = "";           // SIM pin number. Leave empty if it is not needed.
 #else
 // WiFi network info.
-char ssid[] = "GA Guest";
+char ssid[] = "";
 char wifiPassword[] = "";
 #endif
 
@@ -110,6 +110,7 @@ char username[] = "";
 char password[] = "";
 char clientID[] = "";
 
+//Inital wakeup from deepsleep
 void print_wakeup_reason() {
   esp_sleep_wakeup_cause_t wakeup_reason;
 
@@ -139,7 +140,7 @@ void setup() {
   delay(300);
   digitalWrite(PWR_PIN, LOW);
 
-  //Stage
+  //Sets up STAGE_PIN 4
   pinMode(STAGE_PIN, INPUT);
 
   //Wait for the SIM7000 communication to be normal, and will quit when receiving any byte
@@ -196,7 +197,7 @@ void readTemp() {
   if (temperature != DEVICE_DISCONNECTED_C)           // Check if reading was successful
   {
   } else {
-    temperature = 999;
+    temperature = 999; //If disconnected, sends value 999
   }
 }
 
@@ -227,7 +228,7 @@ void sendData()
   Cayenne.virtualWrite(SECZ_VIRTUAL_CHANNEL, secz, "second");
 
   send = true;
-  delay(3000); //Experiment without delay
+  delay(3000); 
 }
 
 float readBattery(uint8_t pin) {
